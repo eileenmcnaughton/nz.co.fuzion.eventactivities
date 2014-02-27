@@ -175,21 +175,42 @@ function eventactivities_civicrm_post( $op, $objectName, $objectId, &$objectRef 
     return;
   }
 
-  if(empty($objectRef->status_id) && !empty($objectId)) {
-    $status_id = civicrm_api3('participant', 'getvalue', array('id' => $objectId, 'return' => 'status_id'));
+  if((empty($objectRef->status_id) || empty($objectRef->role_id)) && !empty($objectId)) {
+    $participant = civicrm_api3('participant', 'getsingle', array('id' => $objectId, 'return' => 'status_id, role_id'));
+    $status_id = $participant['status_id'];
+    $role_ids = $participant['role_id'];
   }
   else {
     $status_id = $objectRef->status_id;
+    $role_ids = explode(CRM_Core_DAO::VALUE_SEPARATOR, $objectRef->role_id);
   }
+  $allroles = civicrm_api3('participant', 'getoptions', array('field' => 'role_id'));
+  $roles = array();
+  foreach ($role_ids as $role_id) {
+    $roles[] = $allroles['values'][$role_id];
+  }
+
+  $role = implode(', ', $roles);
   $statuses = _eventactivities_get_participant_statuses();
   if($statuses[$status_id]['class'] == 'Positive') {
-    _eventactivities_create_event_activity($objectId, $objectRef->contact_id, TRUE, $objectRef->event_id);
+    $attended = TRUE;
   }
   elseif ($statuses[$status_id]['class'] == 'Negative') {
-    _eventactivities_create_event_activity($objectId, $objectRef->contact_id, FALSE, $objectRef->event_id);
+    $attended = FALSE;
   }
+  else {
+    //pending
+    return;
+  }
+  _eventactivities_create_event_activity($objectId, $objectRef->contact_id, $attended, $objectRef->event_id, $statuses[$status_id]['label'], $role);
+
 }
 
+/**
+ *
+ * @param array $types as in classes in the status table
+ * @return multitype:unknown
+ */
 function _eventactivities_get_participant_statuses($types = array('Positive', 'Negative')) {
   static $statuses;
   if(empty($statuses)) {
@@ -223,25 +244,27 @@ function _eventactivities_delete_related_activity($participantID) {
  * Delete activity related to the participant record being deleted
  * @param unknown $participantID
  */
-function _eventactivities_create_event_activity($participantID, $contactID, $attended, $eventID) {
+function _eventactivities_create_event_activity($participantID, $contactID, $attended, $eventID, $status, $role) {
   $activityTypes =  _eventactivities_get_activity_types(FALSE, $attended);
   $activityTypeID = $activityTypes[0];
+  $eventDetails = _eventactivities_get_event_details($participantID, $eventID);
+  $subject = "{$eventDetails['title']} $status $role ";
+
   try {
     $activity = civicrm_api3('activity', 'getsingle', array('source_record_id' => $participantID, 'activity_type_id' => array('IN' => _eventactivities_get_activity_types())));
-    if($activity['activity_type_id'] != $activityTypeID) {
-      civicrm_api3('activity', 'create', array('id' => $activity['id'], 'activity_type_id' => $activityTypeID));
+    if($activity['activity_type_id'] != $activityTypeID || $activity['subject'] != $subject) {
+      civicrm_api3('activity', 'create', array('id' => $activity['id'], 'activity_type_id' => $activityTypeID, 'subject' => $subject));
     }
   }
   catch(Exception $e) {
     try {
-      $eventDetails = _eventactivities_get_event_details($participantID, $eventID);
       civicrm_api3('activity', 'create', array(
         'source_contact_id' => $contactID,
         'source_record_id' => $participantID,
         'target_contact_id' => $contactID,
         'activity_type_id' => $activityTypeID,
         'activity_date_time' => $eventDetails['start_date'],
-        'subject' => $eventDetails['title'] . ' ', //. $eventDetails['start_date'] . ' ' . $eventDetails['end_date'],
+        'subject' => $subject,
       ));
     }
     catch(Exception $e) {
