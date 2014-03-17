@@ -130,12 +130,12 @@ function _eventactivities_get_activity_types($all = TRUE, $attended = NULL) {
  */
 function _eventactivities_get_activity_labels($all = TRUE, $attended = NULL) {
   if($all) {
-    return array('Event Attended' => TRUE, 'Event No Show' => FALSE);
+    return array('Event Attended' => TRUE, 'Event Not Attended' => FALSE);
   }
   if($attended) {
     return array('Event Attended' => TRUE);
   }
-  return array('Event No Show' => FALSE);
+  return array('Event Not Attended' => FALSE);
 }
 
 /**
